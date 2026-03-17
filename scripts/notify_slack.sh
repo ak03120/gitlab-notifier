@@ -84,15 +84,12 @@ case "$action" in
   ;;
 esac
 
-noteable_type_raw="$(printf '%s' "$payload" | jq -er '.object_attributes.noteable_type')" || fail "E_NOTEABLE_TYPE_MISSING"
-noteable_type_lower="$(printf '%s' "$noteable_type_raw" | tr '[:upper:]' '[:lower:]')"
-case "$noteable_type_lower" in
-  merge_request|mergerequest)
-    noteable_type="Merge Request"
+noteable_type="$(printf '%s' "$payload" | jq -er '.object_attributes.noteable_type')" || fail "E_NOTEABLE_TYPE_MISSING"
+case "$noteable_type" in
+  MergeRequest)
     reference_prefix="!"
     ;;
-  issue)
-    noteable_type="Issue"
+  Issue)
     reference_prefix="#"
     ;;
   *) fail "E_UNSUPPORTED_NOTEABLE_TYPE" ;;
@@ -118,9 +115,9 @@ if [ -n "$prefix" ]; then
 fi
 fallback_text="$(printf '%s / %s%s%s %s' "$actor_name" "$project_name" "$reference_prefix" "$reference" "$url")"
 
-case "$noteable_type_lower" in
-  merge_request) participants_path="/projects/${project_id}/merge_requests/${reference}/participants" ;;
-  issue) participants_path="/projects/${project_id}/issues/${reference}/participants" ;;
+case "$noteable_type" in
+  MergeRequest) participants_path="/projects/${project_id}/merge_requests/${reference}/participants" ;;
+  Issue) participants_path="/projects/${project_id}/issues/${reference}/participants" ;;
   *) fail "E_PARTICIPANTS_PATH_UNRESOLVED" ;;
 esac
 debug "PARTICIPANTS_PATH_RESOLVED"
