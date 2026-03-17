@@ -97,17 +97,24 @@ case "$noteable_type_lower" in
 esac
 debug "NOTEABLE_TYPE_RESOLVED"
 
-actor_name="$(printf '%s' "$payload" | jq -r '.user.username // .user.name // "Unknown"')"
+actor_name="$(printf '%s' "$payload" | jq -r '.user.name // .user.username // "Unknown"')"
 
 project_id="$(printf '%s' "$payload" | jq -r '.project.id // ""')"
-project_name="$(printf '%s' "$payload" | jq -r '.project.path_with_namespace // .project.name // "Unknown Project"')"
+project_name="$(printf '%s' "$payload" | jq -r '.project.name // .project.path_with_namespace // "Unknown Project"')"
 reference="$(printf '%s' "$payload" | jq -r '.merge_request.iid // .issue.iid // .object_attributes.noteable_iid // .object_attributes.id // "?" | tostring')"
 note="$(printf '%s' "$payload" | jq -r '.object_attributes.note // ""')"
 url="$(printf '%s' "$payload" | jq -r '.object_attributes.url // ""')"
 prefix="${SLACK_MESSAGE_PREFIX:-}"
 
-quoted_note="$(printf '%s' "$note" | sed 's/^/>/' )"
-header_text="# ${actor_name} / [${project_name}${reference_prefix}${reference}](${url})"
+actor_username="$(printf '%s' "$payload" | jq -r '.user.username // ""')"
+actor_url=""
+if [ -n "$actor_username" ]; then
+  actor_url="${gitlab_web_base_url}/${actor_username}"
+fi
+header_text="**${actor_name} @ [${project_name}${reference_prefix}${reference}](${url})**"
+if [ -n "$actor_url" ]; then
+  header_text="**[${actor_name}](${actor_url}) @ [${project_name}${reference_prefix}${reference}](${url})**"
+fi
 if [ -n "$prefix" ]; then
   header_text="$(printf '%s\n%s' "$prefix" "$header_text")"
 fi
@@ -182,8 +189,7 @@ for participant_id in $participant_emails; do
     --arg channel "$user_id" \
     --arg text "$fallback_text" \
     --arg header_text "$header_text" \
-    --arg comment_text "$quoted_note" \
-    --arg button_url "$url" \
+    --arg comment_text "$note" \
     '{
       channel: $channel,
       text: $text,
@@ -195,22 +201,6 @@ for participant_id in $participant_emails; do
         {
           type: "markdown",
           text: $comment_text
-        },
-        {
-          type: "actions",
-          elements: [
-            {
-              type: "button",
-              text: {
-                type: "plain_text",
-                text: "Open GitLab",
-                emoji: true
-              },
-              value: "open_gitlab",
-              action_id: "open-gitlab",
-              url: $button_url
-            }
-          ]
         }
       ]
     }')"
