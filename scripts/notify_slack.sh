@@ -66,23 +66,22 @@ fi
 debug "PAYLOAD_LOADED"
 
 gitlab_web_base_url="$(
-  printf '%s' "$payload" | jq -r '
+  printf '%s' "$payload" | jq -er '
     [.project.web_url, .repository.homepage, .object_attributes.url]
     | map(select(. != null and . != ""))
-    | .[0] // ""
-    | if test("^https?://[^/]+") then capture("^(?<base>https?://[^/]+)").base else "" end
+    | .[0]
+    | capture("^(?<base>https?://[^/]+)").base
   '
-)"
-[ -n "$gitlab_web_base_url" ] || fail "E_GITLAB_BASE_URL_UNRESOLVED"
+)" || fail "E_GITLAB_BASE_URL_UNRESOLVED"
 GITLAB_API_BASE_URL="${gitlab_web_base_url}/api/v4"
 debug "GITLAB_API_BASE_URL_RESOLVED"
 
-action="$(printf '%s' "$payload" | jq -r '.object_attributes.action // ""')"
-if [ -n "$action" ] && [ "$action" != "create" ]; then
+action="$(printf '%s' "$payload" | jq -er '.object_attributes.action')" || fail "E_ACTION_MISSING"
+if [ "$action" != "create" ]; then
   fail "E_UNSUPPORTED_COMMENT_ACTION"
 fi
 
-noteable_type_raw="$(printf '%s' "$payload" | jq -r '.object_attributes.noteable_type // ""')"
+noteable_type_raw="$(printf '%s' "$payload" | jq -er '.object_attributes.noteable_type')" || fail "E_NOTEABLE_TYPE_MISSING"
 noteable_type_lower="$(printf '%s' "$noteable_type_raw" | tr '[:upper:]' '[:lower:]')"
 case "$noteable_type_lower" in
   merge_request)
@@ -97,24 +96,18 @@ case "$noteable_type_lower" in
 esac
 debug "NOTEABLE_TYPE_RESOLVED"
 
-actor_name="$(printf '%s' "$payload" | jq -r '.user.name // .user.username // "Unknown"')"
+actor_name="$(printf '%s' "$payload" | jq -er '.user.name')" || fail "E_USER_NAME_MISSING"
 
-project_id="$(printf '%s' "$payload" | jq -r '.project.id // ""')"
-project_name="$(printf '%s' "$payload" | jq -r '.project.name // .project.path_with_namespace // "Unknown Project"')"
-reference="$(printf '%s' "$payload" | jq -r '.merge_request.iid // .issue.iid // .object_attributes.noteable_iid // .object_attributes.id // "?" | tostring')"
-note="$(printf '%s' "$payload" | jq -r '.object_attributes.note // ""')"
-url="$(printf '%s' "$payload" | jq -r '.object_attributes.url // ""')"
+project_id="$(printf '%s' "$payload" | jq -er '.project.id | tostring')" || fail "E_PROJECT_ID_MISSING"
+project_name="$(printf '%s' "$payload" | jq -er '.project.namespace')" || fail "E_PROJECT_NAMESPACE_MISSING"
+reference="$(printf '%s' "$payload" | jq -er '(.merge_request.iid // .issue.iid // .object_attributes.noteable_iid // .object_attributes.id) | tostring')" || fail "E_REFERENCE_MISSING"
+note="$(printf '%s' "$payload" | jq -er '.object_attributes.note')" || fail "E_NOTE_MISSING"
+url="$(printf '%s' "$payload" | jq -er '.object_attributes.url')" || fail "E_URL_MISSING"
 prefix="${SLACK_MESSAGE_PREFIX:-}"
 
-actor_username="$(printf '%s' "$payload" | jq -r '.user.username // ""')"
-actor_url=""
-if [ -n "$actor_username" ]; then
-  actor_url="${gitlab_web_base_url}/${actor_username}"
-fi
-header_text="**${actor_name} @ [${project_name}${reference_prefix}${reference}](${url})**"
-if [ -n "$actor_url" ]; then
-  header_text="**[${actor_name}](${actor_url}) @ [${project_name}${reference_prefix}${reference}](${url})**"
-fi
+actor_username="$(printf '%s' "$payload" | jq -er '.user.username')" || fail "E_USERNAME_MISSING"
+actor_url="${gitlab_web_base_url}/${actor_username}"
+header_text="**[${actor_name}](${actor_url}) @ [${project_name}${reference_prefix}${reference}](${url})**"
 if [ -n "$prefix" ]; then
   header_text="$(printf '%s\n%s' "$prefix" "$header_text")"
 fi
@@ -159,8 +152,8 @@ for participant_id in $participant_emails; do
     debug "USER_FETCH_SKIPPED"
     continue
   }
-  target_email="$(printf '%s' "$user_response" | jq -r '.public_email // ""')"
-  [ -n "$target_email" ] || {
+  target_email="$(printf '%s' "$user_response" | jq -r '.public_email')"
+  [ "$target_email" != "null" ] || {
     debug "PUBLIC_EMAIL_MISSING"
     continue
   }
@@ -172,15 +165,15 @@ for participant_id in $participant_emails; do
     debug "SLACK_LOOKUP_EMPTY"
     continue
   }
-  lookup_ok="$(printf '%s' "$lookup_response" | jq -r '.ok // false')"
+  lookup_ok="$(printf '%s' "$lookup_response" | jq -r '.ok')"
   [ "$lookup_ok" = "true" ] || {
     debug "SLACK_LOOKUP_NOT_OK"
     continue
   }
   slack_lookup_success_count=$((slack_lookup_success_count + 1))
 
-  user_id="$(printf '%s' "$lookup_response" | jq -r '.user.id // ""')"
-  [ -n "$user_id" ] || {
+  user_id="$(printf '%s' "$lookup_response" | jq -r '.user.id')"
+  [ "$user_id" != "null" ] || {
     debug "SLACK_USER_ID_MISSING"
     continue
   }
@@ -210,7 +203,7 @@ for participant_id in $participant_emails; do
     debug "SLACK_POST_EMPTY"
     continue
   }
-  post_ok="$(printf '%s' "$post_response" | jq -r '.ok // false')"
+  post_ok="$(printf '%s' "$post_response" | jq -r '.ok')"
   [ "$post_ok" = "true" ] || {
     debug "SLACK_POST_NOT_OK"
     continue
