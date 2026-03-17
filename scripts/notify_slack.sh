@@ -99,7 +99,7 @@ debug "NOTEABLE_TYPE_RESOLVED"
 actor_name="$(printf '%s' "$payload" | jq -er '.user.name')" || fail "E_USER_NAME_MISSING"
 
 project_id="$(printf '%s' "$payload" | jq -er '.project.id | tostring')" || fail "E_PROJECT_ID_MISSING"
-project_name="$(printf '%s' "$payload" | jq -er '.project.namespace')" || fail "E_PROJECT_NAMESPACE_MISSING"
+project_name="$(printf '%s' "$payload" | jq -er '.project.path_with_namespace')" || fail "E_PROJECT_PATH_WITH_NAMESPACE_MISSING"
 reference="$(printf '%s' "$payload" | jq -er '(.merge_request.iid // .issue.iid // .object_attributes.noteable_iid // .object_attributes.id) | tostring')" || fail "E_REFERENCE_MISSING"
 note="$(printf '%s' "$payload" | jq -er '.object_attributes.note')" || fail "E_NOTE_MISSING"
 url="$(printf '%s' "$payload" | jq -er '.object_attributes.url')" || fail "E_URL_MISSING"
