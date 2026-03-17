@@ -87,7 +87,7 @@ esac
 noteable_type_raw="$(printf '%s' "$payload" | jq -er '.object_attributes.noteable_type')" || fail "E_NOTEABLE_TYPE_MISSING"
 noteable_type_lower="$(printf '%s' "$noteable_type_raw" | tr '[:upper:]' '[:lower:]')"
 case "$noteable_type_lower" in
-  merge_request)
+  merge_request|mergerequest)
     noteable_type="Merge Request"
     reference_prefix="!"
     ;;
