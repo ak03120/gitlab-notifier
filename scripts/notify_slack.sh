@@ -77,9 +77,12 @@ GITLAB_API_BASE_URL="${gitlab_web_base_url}/api/v4"
 debug "GITLAB_API_BASE_URL_RESOLVED"
 
 action="$(printf '%s' "$payload" | jq -er '.object_attributes.action')" || fail "E_ACTION_MISSING"
-if [ "$action" != "create" ]; then
+case "$action" in
+  create|update) ;;
+  *)
   fail "E_UNSUPPORTED_COMMENT_ACTION"
-fi
+  ;;
+esac
 
 noteable_type_raw="$(printf '%s' "$payload" | jq -er '.object_attributes.noteable_type')" || fail "E_NOTEABLE_TYPE_MISSING"
 noteable_type_lower="$(printf '%s' "$noteable_type_raw" | tr '[:upper:]' '[:lower:]')"
@@ -104,6 +107,8 @@ reference="$(printf '%s' "$payload" | jq -er '(.merge_request.iid // .issue.iid 
 note="$(printf '%s' "$payload" | jq -er '.object_attributes.note')" || fail "E_NOTE_MISSING"
 url="$(printf '%s' "$payload" | jq -er '.object_attributes.url')" || fail "E_URL_MISSING"
 prefix="${SLACK_MESSAGE_PREFIX:-}"
+note_anchor="$(printf '%s' "$url" | sed -n 's/.*#\(note_[^#?&/]*\).*/\1/p')"
+[ -n "$note_anchor" ] || fail "E_NOTE_ANCHOR_MISSING"
 
 actor_username="$(printf '%s' "$payload" | jq -er '.user.username')" || fail "E_USERNAME_MISSING"
 actor_url="${gitlab_web_base_url}/${actor_username}"
@@ -136,11 +141,12 @@ participants_count=0
 public_email_found_count=0
 slack_lookup_success_count=0
 message_sent_count=0
+message_updated_count=0
 participant_candidates_count="$(printf '%s\n' "$participant_emails" | jq -Rsc 'split("\n") | map(select(. != "")) | length')"
 debug "PARTICIPANT_CANDIDATES_COUNT=${participant_candidates_count}"
 
 [ -n "$participant_emails" ] || {
-  debug "PARTICIPANTS_COUNT=0 PUBLIC_EMAIL_FOUND=0 SLACK_LOOKUP_SUCCESS=0 MESSAGE_SENT=0"
+  debug "PARTICIPANTS_COUNT=0 PUBLIC_EMAIL_FOUND=0 SLACK_LOOKUP_SUCCESS=0 MESSAGE_SENT=0 MESSAGE_UPDATED=0"
   exit 0
 }
 
@@ -178,8 +184,25 @@ for participant_id in $participant_emails; do
     continue
   }
 
-  post_body="$(jq -n \
-    --arg channel "$user_id" \
+  dm_open_body="$(jq -n --arg user_id "$user_id" '{users: $user_id}')"
+  dm_open_response="$(slack_post "conversations.open" "$dm_open_body" || true)"
+  [ -n "$dm_open_response" ] || {
+    debug "SLACK_DM_OPEN_EMPTY"
+    continue
+  }
+  dm_open_ok="$(printf '%s' "$dm_open_response" | jq -r '.ok')"
+  [ "$dm_open_ok" = "true" ] || {
+    debug "SLACK_DM_OPEN_NOT_OK"
+    continue
+  }
+  dm_channel_id="$(printf '%s' "$dm_open_response" | jq -r '.channel.id')"
+  [ "$dm_channel_id" != "null" ] || {
+    debug "SLACK_DM_CHANNEL_ID_MISSING"
+    continue
+  }
+
+  message_body="$(jq -n \
+    --arg channel "$dm_channel_id" \
     --arg text "$fallback_text" \
     --arg header_text "$header_text" \
     --arg comment_text "$note" \
@@ -198,21 +221,57 @@ for participant_id in $participant_emails; do
       ]
     }')"
 
-  post_response="$(slack_post "chat.postMessage" "$post_body" || true)"
-  [ -n "$post_response" ] || {
-    debug "SLACK_POST_EMPTY"
-    continue
-  }
-  post_ok="$(printf '%s' "$post_response" | jq -r '.ok')"
-  [ "$post_ok" = "true" ] || {
-    debug "SLACK_POST_NOT_OK"
-    continue
-  }
-  message_sent_count=$((message_sent_count + 1))
-  debug "MESSAGE_SENT_OK"
+  case "$action" in
+    create)
+      post_response="$(slack_post "chat.postMessage" "$message_body" || true)"
+      [ -n "$post_response" ] || {
+        debug "SLACK_POST_EMPTY"
+        continue
+      }
+      post_ok="$(printf '%s' "$post_response" | jq -r '.ok')"
+      [ "$post_ok" = "true" ] || {
+        debug "SLACK_POST_NOT_OK"
+        continue
+      }
+      message_sent_count=$((message_sent_count + 1))
+      debug "MESSAGE_SENT_OK"
+      ;;
+    update)
+      history_query="channel=$(jq -rn --arg channel "$dm_channel_id" '$channel|@uri')&limit=20"
+      history_response="$(slack_get "conversations.history" "$history_query" || true)"
+      [ -n "$history_response" ] || {
+        debug "SLACK_HISTORY_EMPTY"
+        continue
+      }
+      history_ok="$(printf '%s' "$history_response" | jq -r '.ok')"
+      [ "$history_ok" = "true" ] || {
+        debug "SLACK_HISTORY_NOT_OK"
+        continue
+      }
+      message_ts="$(printf '%s' "$history_response" | jq -r --arg note_anchor "$note_anchor" '.messages | map(select((.text // "") | contains($note_anchor))) | .[0].ts')"
+      [ "$message_ts" != "null" ] || {
+        debug "SLACK_MESSAGE_TS_NOT_FOUND"
+        continue
+      }
+      update_body="$(printf '%s' "$message_body" | jq -c --arg ts "$message_ts" '. + {ts: $ts}')"
+      update_response="$(slack_post "chat.update" "$update_body" || true)"
+      [ -n "$update_response" ] || {
+        debug "SLACK_UPDATE_EMPTY"
+        continue
+      }
+      update_ok="$(printf '%s' "$update_response" | jq -r '.ok')"
+      [ "$update_ok" = "true" ] || {
+        debug "SLACK_UPDATE_NOT_OK"
+        continue
+      }
+      message_updated_count=$((message_updated_count + 1))
+      debug "MESSAGE_UPDATED_OK"
+      ;;
+  esac
 done
 
 printf 'PARTICIPANTS_COUNT=%s\n' "$participants_count"
 printf 'PUBLIC_EMAIL_FOUND=%s\n' "$public_email_found_count"
 printf 'SLACK_LOOKUP_SUCCESS=%s\n' "$slack_lookup_success_count"
 printf 'MESSAGE_SENT=%s\n' "$message_sent_count"
+printf 'MESSAGE_UPDATED=%s\n' "$message_updated_count"
