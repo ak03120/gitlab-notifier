@@ -108,6 +108,10 @@ note_anchor="$(printf '%s' "$url" | sed -n 's/.*#\(note_[^#?&/]*\).*/\1/p')"
 [ -n "$note_anchor" ] || fail "E_NOTE_ANCHOR_MISSING"
 
 actor_username="$(printf '%s' "$payload" | jq -er '.user.username')" || fail "E_USERNAME_MISSING"
+if printf '%s' "$actor_username" | grep -Fq '_bot_'; then
+  debug "BOT_USER_SKIPPED"
+  exit 0
+fi
 actor_url="${gitlab_web_base_url}/${actor_username}"
 header_text="**[${actor_name}](${actor_url}) @ [${project_name}${reference_prefix}${reference}](${url})**"
 if [ -n "$prefix" ]; then
