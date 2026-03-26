@@ -97,6 +97,7 @@ esac
 debug "NOTEABLE_TYPE_RESOLVED"
 
 actor_name="$(printf '%s' "$payload" | jq -er '.user.name')" || fail "E_USER_NAME_MISSING"
+actor_id="$(printf '%s' "$payload" | jq -er '.user.id | tostring')" || fail "E_USER_ID_MISSING"
 
 project_id="$(printf '%s' "$payload" | jq -er '.project.id | tostring')" || fail "E_PROJECT_ID_MISSING"
 project_name="$(printf '%s' "$payload" | jq -er '.project.path_with_namespace')" || fail "E_PROJECT_PATH_WITH_NAMESPACE_MISSING"
@@ -154,6 +155,10 @@ debug "PARTICIPANT_CANDIDATES_COUNT=${participant_candidates_count}"
 for participant_id in $participant_emails; do
   participants_count=$((participants_count + 1))
   debug "PARTICIPANT_LOOP_INDEX=${participants_count}"
+  if [ "$participant_id" = "$actor_id" ]; then
+    debug "AUTHOR_SKIPPED"
+    continue
+  fi
   user_response="$(gitlab_get "/users/${participant_id}" || true)"
   [ -n "$user_response" ] || {
     debug "USER_FETCH_SKIPPED"
