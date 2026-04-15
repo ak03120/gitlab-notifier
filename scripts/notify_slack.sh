@@ -111,7 +111,7 @@ note_anchor="$(printf '%s' "$url" | sed -n 's/.*#\(note_[^#?&/]*\).*/\1/p')"
 actor_username="$(printf '%s' "$payload" | jq -er '.user.username')" || fail "E_USERNAME_MISSING"
 if printf '%s' "$actor_username" | grep -Fq '_bot_'; then
   debug "BOT_USER_SKIPPED"
-  exit 0
+  fail "E_BOT_USER_SKIPPED"
 fi
 actor_url="${gitlab_web_base_url}/${actor_username}"
 header_text="**[${actor_name}](${actor_url}) @ [${project_name}${reference_prefix}${reference}](${url})**"
@@ -149,7 +149,7 @@ debug "PARTICIPANT_CANDIDATES_COUNT=${participant_candidates_count}"
 
 [ -n "$participant_emails" ] || {
   debug "PARTICIPANTS_COUNT=0 PUBLIC_EMAIL_FOUND=0 SLACK_LOOKUP_SUCCESS=0 MESSAGE_SENT=0 MESSAGE_UPDATED=0"
-  exit 0
+  fail "E_NO_PARTICIPANTS"
 }
 
 for participant_id in $participant_emails; do
